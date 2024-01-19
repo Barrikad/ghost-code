@@ -1,0 +1,690 @@
+theory ioruund imports Main
+begin
+
+(*definition *)
+
+datatype '\<s> state
+  = S '\<s>
+  | \<Psi>
+
+definition \<open>SKIP x \<equiv> {x}\<close>
+
+lemma SKIP_simp[simp]: \<open>SKIP x = {x}\<close>
+  unfolding SKIP_def ..
+
+primrec HAVOC where
+  \<open>HAVOC (S \<s>) = (\<Union> \<s>'. {S \<s>'})\<close> |
+  \<open>HAVOC \<Psi> = {\<Psi>}\<close>
+
+definition \<open>ABORT x \<equiv> {\<Psi>}\<close>
+
+lemma ABORT_simp[simp]: \<open>ABORT x = {\<Psi>}\<close>
+  unfolding ABORT_def ..
+
+definition \<open>ops \<equiv> {f. (\<forall> x. f x \<noteq> {}) \<and> f \<Psi> = {\<Psi>}}\<close>
+
+lemma SKIP_ops[intro]: \<open>SKIP \<in> ops\<close>
+  unfolding ops_def by simp
+
+lemma HAVOC_ops[intro]: \<open>HAVOC \<in> ops\<close>
+proof (unfold ops_def, clarify, rule)
+  show \<open>\<forall> x. HAVOC x \<noteq> {}\<close>
+  proof
+    fix x :: \<open>'c state\<close>
+    show \<open>HAVOC x \<noteq> {}\<close>
+      by (cases x,auto)
+  qed
+qed auto
+
+lemma ABORT_ops[intro]: \<open>ABORT \<in> ops\<close>
+  unfolding ops_def by simp
+
+definition \<open>k_req k \<equiv> \<forall> c. k c \<in> ops\<close>
+
+(*A* = ('c + 'h) list*)
+(*R = 'h \<Rightarrow> 'i \<Rightarrow> A* set *)
+
+abbreviation star_lift (\<open>(_\<^bold>*)\<close> [1000] 1000) where \<open>f\<^bold>* X \<equiv> Set.bind X f\<close>
+
+definition \<open>R_req R \<equiv> \<forall> h x. R h x \<noteq> {}\<close>
+
+definition \<open>skip_req p \<equiv> p [] = SKIP\<close>
+
+definition \<open>seq_req p \<equiv> \<forall> v w. p (v @ w) = (p w)\<^bold>* \<circ> p v\<close>
+
+definition \<open>atom_req k p \<equiv> \<forall> s. p [Inl s] = k s\<close>
+
+definition \<open>ref_req R p \<equiv> \<forall> h x. p [Inr h] x = (\<Union> r \<in> R h x. p r x)\<close>
+
+definition \<open>interpretation_req k R p \<equiv> k_req k \<and> R_req R \<and> skip_req p \<and> seq_req p \<and> atom_req k p \<and> ref_req R p\<close>
+
+primrec interp_lift (\<open>(_\<^bold>^)\<close> [1000] 1000) where
+  \<open>p\<^bold>^ [] x = {x}\<close> |
+  \<open>p\<^bold>^ (c # v) x = (p\<^bold>^ v)\<^bold>* (p c x)\<close>
+
+lemma skip_req_interp_lift: \<open>skip_req p\<^bold>^\<close>
+  unfolding skip_req_def by auto
+
+lemma seq_req_interp_lift: \<open>seq_req p\<^bold>^\<close>
+proof (unfold seq_req_def, safe, rule)
+  fix v w :: \<open>'a list\<close>
+  fix x
+  show \<open>p\<^bold>^ (v @ w) x = ((p\<^bold>^ w)\<^bold>* \<circ> p\<^bold>^ v) x\<close>
+  proof (induct v arbitrary: x)
+    case (Cons c v)
+    have \<open>p\<^bold>^ ((c # v) @ w) x = (p\<^bold>^ (v @ w))\<^bold>* (p c x)\<close> 
+      by simp
+    moreover have \<open>... = ((p\<^bold>^ w)\<^bold>* \<circ> p\<^bold>^ v)\<^bold>* (p c x)\<close>
+      using Cons by auto
+    moreover have \<open>... = ((p\<^bold>^ w)\<^bold>* \<circ> p\<^bold>^ (c # v)) x\<close>
+      by fastforce
+    ultimately show ?case 
+      by simp
+  qed auto
+qed
+
+
+context (*1.5. Example of a refinement function with four interpretations*)
+begin
+private definition \<open>\<k> (u :: unit) \<equiv> HAVOC\<close>
+
+private lemma k_req_\<k>: \<open>k_req \<k>\<close>
+  unfolding k_req_def \<k>_def by auto
+
+private definition \<open>\<R> (u :: unit) b \<equiv> if b = S True then {[Inl (),Inr ()]} else {[]}\<close>
+
+private lemma R_req_\<R>: \<open>R_req \<R>\<close>
+  unfolding R_req_def \<R>_def by simp
+
+private lemma hff: (*p h ff must be {ff}*)
+  assumes \<open>interpretation_req \<k> \<R> p\<close>
+  shows \<open>p [Inr ()] (S False) = {S False}\<close> 
+proof-
+  have \<open>p [Inr ()] (S False) = p [] (S False)\<close>
+    using assms unfolding interpretation_req_def ref_req_def \<R>_def by simp
+  moreover have \<open>... = {S False}\<close>
+    using assms unfolding interpretation_req_def skip_req_def by simp
+  ultimately show ?thesis
+    by simp
+qed
+
+private fun p1 where
+  \<open>p1 (Inl s) x = (\<k> s x)\<close> |
+  \<open>p1 (Inr h) (S False) = {S False}\<close> |
+  \<open>p1 (Inr h) (S True) = (SOME X. S False \<in> X)\<close>| (*any X that contains False will be a valid interpretation*)
+  \<open>p1 (Inr h) \<Psi> = {\<Psi>}\<close>
+
+private lemma atom_req_p1: \<open>atom_req \<k> (p1\<^bold>^)\<close>
+  unfolding atom_req_def by auto
+
+private lemma ref_req_p1: \<open>ref_req \<R> (p1\<^bold>^)\<close>
+proof (unfold ref_req_def, clarify)
+  fix h x
+  show \<open>p1\<^bold>^ [Inr h] x = (\<Union>r\<in>\<R> h x. p1\<^bold>^ r x)\<close>
+  proof (cases x)
+    case (S x')
+    then show ?thesis 
+    proof (cases x')
+      case True
+      with S have \<open>(\<Union>r\<in>\<R> h x. p1\<^bold>^ r x) = p1\<^bold>^ [Inl (),Inr ()] x\<close> 
+        unfolding \<R>_def by simp
+      moreover have \<open>... = (p1\<^bold>^ [Inr ()])\<^bold>* (p1 (Inl ()) x)\<close> 
+        by  simp
+      moreover have \<open>(p1\<^bold>^ [Inr ()])\<^bold>* (p1 (Inl ()) x) = (p1\<^bold>^ [Inr ()])\<^bold>* (\<k> () x)\<close> 
+        by simp
+      moreover have \<open>... = (p1\<^bold>^ [Inr ()])\<^bold>* {S True, S False}\<close> 
+      proof-
+        have \<open>\<k> () x = {S True, S False}\<close>
+          unfolding \<k>_def using S by auto
+        then show ?thesis 
+          by simp
+      qed
+      moreover have \<open>... = p1\<^bold>^ [Inr ()] (S True) \<union> p1\<^bold>^ [Inr ()] (S False)\<close> 
+        by auto
+      moreover have \<open>... = (SOME X. S False \<in> X) \<union> {S False}\<close> 
+        by auto
+      moreover have \<open>... = (SOME X. S False \<in> X)\<close> 
+        by (metis UNIV_I Un_insert_right insert_absorb someI sup_bot_right)
+      ultimately show ?thesis 
+        using S True by auto
+    next
+      case False
+      with S show ?thesis 
+        unfolding \<R>_def by auto
+    qed
+  next
+    case \<Psi>
+    then show ?thesis 
+      unfolding \<R>_def by auto
+  qed
+qed
+
+private lemma \<open>interpretation_req \<k> \<R> (p1\<^bold>^)\<close>
+  unfolding interpretation_req_def using k_req_\<k> R_req_\<R> atom_req_p1 ref_req_p1 skip_req_interp_lift seq_req_interp_lift by auto
+end
+
+inductive transition for k R where
+  t_l[intro]: \<open>x \<noteq> \<Psi> \<Longrightarrow> x0 \<in> k s x \<Longrightarrow> transition k R (x,Inl s # v) (x0,v)\<close> |
+  t_r[intro]: \<open>x \<noteq> \<Psi> \<Longrightarrow> r \<in> R h x \<Longrightarrow> transition k R (x,Inr h # v) (x,r @ v)\<close> 
+
+definition path_up_to where \<open>path_up_to k R n \<ss> \<equiv> \<forall> m < n.  transition k R (\<ss> m) (\<ss> (Suc m))\<close>
+
+lemma path_up_to_imp_star: \<open>path_up_to k R n \<ss> \<Longrightarrow> \<forall> i \<le> n. \<forall> j \<le> i. (transition k R)\<^sup>*\<^sup>* (\<ss> j) (\<ss> i)\<close>
+proof (induct n)
+  case (Suc n)
+  then have *: \<open>\<forall>i\<le>n. \<forall>j\<le>i. (transition k R)\<^sup>*\<^sup>* (\<ss> j) (\<ss> i)\<close>
+    unfolding path_up_to_def by simp
+  show ?case 
+  proof (clarify)
+    fix i j :: nat
+    assume \<open>j \<le> i\<close>
+    assume \<open>i \<le> Suc n\<close>
+    then consider \<open>i = Suc n\<close> | \<open>i \<le> n\<close>
+      by linarith
+    then show \<open>(transition k R)\<^sup>*\<^sup>* (\<ss> j) (\<ss> i) \<close>
+    proof cases
+      case 1
+      then have \<open>j < i \<longrightarrow> (transition k R)\<^sup>*\<^sup>* (\<ss> j) (\<ss> n)\<close>
+        using \<open>j \<le> i\<close> * by simp
+      moreover have \<open>transition k R (\<ss> n) (\<ss> (Suc n))\<close>
+        using Suc unfolding path_up_to_def by simp
+      ultimately show ?thesis 
+        using 1 \<open>j \<le> i\<close> by auto
+    next
+      case 2
+      then show ?thesis 
+        using * \<open>j \<le> i\<close> by auto
+    qed
+  qed
+qed auto
+
+
+lemma star_imp_path_up_to:
+  \<open>(transition k R)\<^sup>*\<^sup>* \<cc>1 \<cc>2 \<Longrightarrow> (\<exists> \<ss> n. path_up_to k R n \<ss> \<and> \<ss> 0 = \<cc>1 \<and> \<ss> n = \<cc>2)\<close>
+proof (induct rule: rtranclp_induct)
+  case base
+  then show ?case 
+    unfolding path_up_to_def by auto
+next
+  case (step \<cc>2 \<cc>3)
+  then obtain \<ss> n where \<ss>_def: \<open>path_up_to k R n \<ss> \<and> \<ss> 0 = \<cc>1 \<and> \<ss> n = \<cc>2\<close> 
+    by auto
+  then have \<open>path_up_to k R (Suc n) (\<ss>(Suc n := \<cc>3))\<close>
+    using step(2) unfolding path_up_to_def by simp
+  then show ?case 
+    using \<ss>_def by fastforce
+qed
+
+lemma path_up_to_E[elim]: \<open>path_up_to k R n \<ss> \<Longrightarrow> i < n \<Longrightarrow> transition k R (\<ss> i) (\<ss> (Suc i))\<close>
+  unfolding path_up_to_def by simp
+
+definition infinite_path where \<open>infinite_path k R \<ss> \<equiv> \<forall> n. transition k R (\<ss> n) (\<ss> (Suc n))\<close>
+
+lemma infinite_path_iff_path_up_to: \<open>infinite_path k R \<ss> = (\<forall> n. path_up_to k R n \<ss>)\<close>
+  unfolding path_up_to_def infinite_path_def by auto
+
+definition diverge where \<open>diverge k R \<cc> \<equiv> \<exists> \<ss>. \<cc> = \<ss> 0 \<and> infinite_path k R \<ss>\<close>
+
+definition big_step where 
+  \<open>big_step k R \<cc> \<equiv> 
+    {x. (transition k R)\<^sup>*\<^sup>* \<cc> (x,[])} \<union> 
+    (if diverge k R \<cc> \<or> (\<exists> v. (transition k R)\<^sup>*\<^sup>* \<cc> (\<Psi>,v)) then {\<Psi>} else {})\<close>
+
+lemma stream_imp_star: \<open>infinite_path k R \<ss> \<Longrightarrow> n \<le> m \<Longrightarrow> (transition k R)\<^sup>*\<^sup>* (\<ss> n) (\<ss> m)\<close>
+proof (unfold infinite_path_def, induct m)
+  case (Suc m)
+  then show ?case 
+  proof (cases \<open>n \<le> m\<close>)
+    case True
+    then have \<open>(transition k R)\<^sup>*\<^sup>* (\<ss> n) (\<ss> m)\<close>
+      using Suc by simp
+    moreover have \<open>transition k R (\<ss> m) (\<ss> (Suc m))\<close>
+      using Suc(2) by simp
+    ultimately show ?thesis 
+      by auto
+  next
+    case False
+    then have \<open>n = Suc m\<close>
+      using Suc by simp
+    then show ?thesis 
+      by simp
+  qed
+qed auto
+
+definition terminal where \<open>terminal k R \<cc> \<equiv> \<nexists> \<cc>'. transition k R \<cc> \<cc>'\<close>
+
+primrec some_path where
+  \<open>some_path k R \<cc> 0 = \<cc>\<close> |
+  \<open>some_path k R \<cc> (Suc n) = (SOME \<cc>'. transition k R (some_path k R \<cc> n) \<cc>')\<close> 
+
+lemma terminal_or_infinite: 
+  \<open>(\<exists> \<cc>2. (transition k R)\<^sup>*\<^sup>* \<cc>1 \<cc>2 \<and> terminal k R \<cc>2) \<or> diverge k R \<cc>1\<close>
+proof (rule ccontr)
+  assume a: \<open>\<not> ((\<exists> \<cc>2. (transition k R)\<^sup>*\<^sup>* \<cc>1 \<cc>2 \<and> terminal k R \<cc>2) \<or> diverge k R \<cc>1)\<close>
+  then have *: \<open>\<forall> \<cc>2. (transition k R)\<^sup>*\<^sup>* \<cc>1 \<cc>2 \<longrightarrow> (\<exists> \<cc>3. transition k R \<cc>2 \<cc>3)\<close> 
+    unfolding terminal_def by simp
+  let ?\<ss> = \<open>some_path k R \<cc>1\<close>
+  have \<open>path_up_to k R n ?\<ss>\<close> for n
+  proof (induct n)
+    case 0
+    then show ?case 
+      unfolding path_up_to_def by simp
+  next
+    case (Suc n)
+    then have \<open>(transition k R)\<^sup>*\<^sup>* (?\<ss> 0) (?\<ss> n)\<close> 
+      by (meson bot_nat_0.extremum eq_imp_le path_up_to_imp_star)
+    then have \<open>\<exists> \<cc>3. transition k R (?\<ss> n) \<cc>3\<close>
+      using * by fastforce
+    then have \<open>transition k R (?\<ss> n) (?\<ss> (Suc n))\<close> 
+      unfolding some_path_def by (metis (mono_tags, lifting) old.nat.simps(7) some_eq_imp)
+    with Suc show ?case 
+      unfolding path_up_to_def using not_less_less_Suc_eq by blast
+  qed
+  then have \<open>infinite_path k R ?\<ss>\<close>
+    by (simp add: infinite_path_iff_path_up_to)
+  then have \<open>diverge k R \<cc>1\<close>
+    unfolding diverge_def by (metis \<open>infinite_path k R (some_path k R \<cc>1)\<close> some_path.simps(1))
+  then show False
+    using a by simp
+qed
+
+lemma terminal_characterization: \<open>R_req R \<Longrightarrow> k_req k \<Longrightarrow> terminal k R \<cc> \<Longrightarrow> (\<exists> x. \<cc> = (x,[])) \<or> (\<exists> v. \<cc> = (\<Psi>,v))\<close>
+proof (rule ccontr)
+  assume \<open>R_req R\<close> \<open>k_req k\<close> 
+  assume \<open>terminal k R \<cc>\<close> 
+  assume \<open>\<not> ((\<exists> x. \<cc> = (x, [])) \<or> (\<exists> v. \<cc> = (\<Psi>, v)))\<close>
+  then obtain \<s> c v where \<open>\<cc> = (S \<s>, c # v)\<close>
+    by (metis list.collapse state.exhaust surj_pair)
+  show False
+  proof (cases c)
+    case (Inl s)
+    obtain x where \<open>x \<in> k s (S \<s>)\<close>
+      using \<open>k_req k\<close> unfolding k_req_def ops_def by blast
+    then have \<open>transition k R \<cc> (x,v)\<close>
+      using Inl \<open>\<cc> = (S \<s>, c # v)\<close> t_l by fast
+    then show ?thesis 
+      using \<open>terminal k R \<cc>\<close> unfolding terminal_def by simp
+  next
+    case (Inr h)
+    obtain w where \<open>w \<in> R h (S \<s>)\<close>
+      using \<open>R_req R\<close> unfolding R_req_def by auto
+    then have \<open>transition k R \<cc> (S \<s>,w @ v)\<close>
+      using Inr \<open>\<cc> = (S \<s>, c # v)\<close> t_r by fast
+    then show ?thesis 
+      using \<open>terminal k R \<cc>\<close> unfolding terminal_def by simp
+  qed
+qed
+
+lemma big_step_non_empty: \<open>R_req R \<Longrightarrow> k_req k \<Longrightarrow> big_step k R \<cc> \<noteq> {}\<close>
+proof-
+  assume \<open>R_req R\<close> \<open>k_req k\<close>
+  consider \<open>(\<exists> \<cc>'. (transition k R)\<^sup>*\<^sup>* \<cc> \<cc>' \<and> terminal k R \<cc>')\<close> | \<open>diverge k R \<cc>\<close>
+    using terminal_or_infinite by fast
+  then show ?thesis
+  proof cases
+    case 1
+    then obtain \<cc>' where \<open>(transition k R)\<^sup>*\<^sup>* \<cc> \<cc>'\<close> \<open>terminal k R \<cc>'\<close> 
+      by auto
+    then show ?thesis 
+      using terminal_characterization[OF \<open>R_req R\<close> \<open>k_req k\<close> \<open>terminal k R \<cc>'\<close>] 
+      unfolding big_step_def by auto
+  next
+    case 2
+    then show ?thesis 
+      unfolding big_step_def by simp
+  qed
+qed
+
+lemma transition_regularity1:  
+  \<open>transition k R (x,v) (y,w) \<Longrightarrow> transition k R (x,v @ u) (y,w @ u)\<close>
+proof (induct \<open>(x,v)\<close> \<open>(y,w)\<close> rule: transition.induct)
+  case (t_l s)
+  then show ?case 
+    using transition.t_l by fastforce
+next
+  case (t_r r h v)
+  then show ?case 
+    using transition.t_r by fastforce
+qed
+
+lemma transition_regularity2:
+  \<open>transition k R (x,u @ v) (y,w) \<Longrightarrow> (u = []) \<or> (\<exists> w1 w2. w = w1 @ w2 \<and> transition k R (x,u) (y,w1))\<close>
+proof (rule SMT.verit_forall_inst(6), rule, induct \<open>(x,u @ v)\<close> \<open>(y,w)\<close> rule: transition.induct)
+  case (t_l s)
+  then obtain w1 where \<open>\<exists> w2. w = w1 @ w2\<close> \<open>Inl s # w1 = u\<close> 
+    by (metis hd_append2 list.collapse list.sel(1) list.sel(3) tl_append2)
+  then have \<open>transition k R (x,u) (y,w1)\<close>
+    using transition.t_l t_l by fast
+  then show ?case 
+    using \<open>\<exists> w2. w = w1 @ w2\<close> by auto
+next
+  case (t_r r h v')
+  then obtain u' where \<open>Inr h # u' = u\<close> 
+    by (meson Cons_eq_append_conv)
+  then have \<open>\<exists> w2. w = r @ u' @ w2\<close>
+    using t_r by auto
+  have \<open>transition k R (x,Inr h # u') (x,r @ u')\<close> 
+    using transition.t_r t_r by fast
+  then show ?case 
+    using \<open>Inr h # u' = u\<close> \<open>\<exists> w2. w = r @ u' @ w2\<close> by (metis append_assoc t_r.hyps(4))
+qed
+
+definition config_post (infixr "\<^bold>;" 65) where \<open>\<cc>\<^bold>;v = Product_Type.apsnd (\<lambda> w. w @ v) \<cc>\<close>
+
+definition necessary where \<open>necessary P \<ss> \<equiv> \<forall> (n :: nat). P (\<ss> n)\<close>
+
+lemma necessary_simp[simp]: \<open>necessary P \<ss> = (\<forall> n. P (\<ss> n))\<close>
+  unfolding necessary_def ..
+
+definition necessary_n where \<open>necessary_n n P \<ss> \<equiv> \<forall> (i :: nat) < n. P (\<ss> i)\<close>
+
+lemma necessary_n_simp[simp]: \<open>necessary_n n P \<ss> = (\<forall> i < n. P (\<ss> i))\<close>
+  unfolding necessary_n_def ..
+
+definition possibly where \<open>possibly P \<ss> \<equiv> \<exists> (n :: nat). P (\<ss> n)\<close>
+
+lemma possibly_simp[simp]: \<open>possibly P \<ss> = (\<exists> n. P (\<ss> n))\<close>
+  unfolding possibly_def ..
+
+definition possibly_n where \<open>possibly_n n P \<ss> \<equiv> \<exists> (i :: nat) \<le> n. P (\<ss> i)\<close>
+
+lemma possibly_n_simp[simp]: \<open>possibly_n n P \<ss> = (\<exists> i \<le> n. P (\<ss> i))\<close>
+  unfolding possibly_n_def ..
+
+definition is_first where \<open>is_first P \<ss> (n :: nat) \<equiv> P (\<ss> n) \<and> (\<forall> m. P (\<ss> m) \<longrightarrow> n \<le> m)\<close>
+
+lemma is_first_unique: \<open>is_first P \<ss> n \<Longrightarrow> \<forall> m. is_first P \<ss> m \<longrightarrow> n = m\<close>
+proof (clarify)
+  fix m
+  assume \<open>is_first P \<ss> n\<close> \<open>is_first P \<ss> m\<close>
+  then have \<open>n \<le> m\<close> \<open>m \<le> n\<close>
+    unfolding is_first_def by simp_all
+  then show \<open>n = m\<close>  
+    by simp
+qed
+
+definition first where \<open>first P \<ss> \<equiv> THE (n :: nat). is_first P \<ss> n\<close>
+
+lemma P_first_or_no_first: \<open>(P (\<ss> (first P \<ss>)) \<and> (\<forall> m. P (\<ss> m) \<longrightarrow> first P \<ss> \<le> m)) \<or> necessary (Not \<circ> P) \<ss>\<close>
+proof (unfold necessary_def)
+  have \<open>(P (\<ss> (first P \<ss>)) \<and> (\<forall> m. P (\<ss> m) \<longrightarrow> first P \<ss> \<le> m)) \<or> (\<forall> i \<le> n. \<not>(P (\<ss> i)))\<close> for n
+  proof (induct n)
+    case 0
+    have \<open>P (\<ss> 0) \<longrightarrow> is_first P \<ss> 0\<close> 
+      unfolding is_first_def by simp
+    then have \<open>P (\<ss> 0) \<longrightarrow> is_first P \<ss> (first P \<ss>)\<close>
+      unfolding first_def using is_first_unique by (metis theI)
+    then show ?case 
+      unfolding is_first_def by auto
+  next
+    case (Suc n)
+    then consider \<open>P (\<ss> (first P \<ss>)) \<and> (\<forall> m. P (\<ss> m) \<longrightarrow> first P \<ss> \<le> m)\<close> | \<open>\<forall> i \<le> n. \<not> P (\<ss> i)\<close>
+      by auto
+    then show ?case 
+    proof cases
+      case 1
+      then show ?thesis
+        by simp
+    next
+      case 2
+      show ?thesis 
+      proof (cases \<open>P (\<ss> (Suc n))\<close>)
+        case True
+        then have \<open>\<forall> m. P (\<ss> m) \<longrightarrow> (Suc n) \<le> m\<close>
+          using 2 not_less_eq_eq by auto
+        then have \<open>is_first P \<ss> (Suc n)\<close>
+          using True unfolding is_first_def by simp
+        then show ?thesis 
+          unfolding first_def using is_first_unique by (metis is_first_def theI)
+      next
+        case False
+        then show ?thesis 
+          using 2 by (metis le_SucE)
+      qed
+    qed
+  qed
+  then show \<open>(P (\<ss> (first P \<ss>)) \<and> (\<forall> m. P (\<ss> m) \<longrightarrow> first P \<ss> \<le> m)) \<or> (\<forall>n. (Not \<circ> P) (\<ss> n))\<close> 
+    by auto
+qed
+
+lemma P_imp_first_leq_n: \<open>P (\<ss> n) \<Longrightarrow> first P \<ss> \<le> n\<close> 
+  using P_first_or_no_first by auto
+
+lemma possibly_imp_first: \<open>possibly_n n P \<ss> \<Longrightarrow> first P \<ss> \<le> n \<and> P (\<ss> (first P \<ss>))\<close>
+proof
+  assume a: \<open>possibly_n n P \<ss>\<close>
+  then show \<open>P (\<ss> (first P \<ss>))\<close> 
+    using P_first_or_no_first by auto
+  with a P_imp_first_leq_n show \<open>first P \<ss> \<le> n\<close> 
+    by (metis le_trans possibly_n_simp)
+qed
+
+lemma not_possibly_imp_first: \<open>\<not>possibly_n n P \<ss> \<Longrightarrow> possibly P \<ss> \<Longrightarrow> first P \<ss> > n\<close>
+  by (metis le_refl linorder_le_less_linear possibly_imp_first possibly_n_simp possibly_simp)
+
+definition until where \<open>until P Q \<ss> \<equiv> if possibly Q \<ss> then necessary_n (first Q \<ss>) P \<ss> else necessary P \<ss>\<close>
+
+lemma until_E[elim]: \<open>until P Q \<ss> \<Longrightarrow> n < first Q \<ss> \<Longrightarrow> P (\<ss> n)\<close>
+  unfolding until_def by (metis necessary_n_simp necessary_simp)
+
+definition until_n where \<open>until_n n P Q \<ss> \<equiv> if possibly_n n Q \<ss> then necessary_n (first Q \<ss>) P \<ss> else necessary_n (Suc n) P \<ss>\<close>
+
+lemma until_n_E[elim]: \<open>until_n n P Q \<ss> \<Longrightarrow> i \<le> n \<Longrightarrow> i < first Q \<ss> \<Longrightarrow> P (\<ss> i)\<close>
+  unfolding until_n_def using necessary_n_simp by (metis less_Suc_eq_le)
+
+lemma until_n_imp_until: \<open>(\<And> n. until_n n P Q \<ss>) \<Longrightarrow> until P Q \<ss>\<close> 
+  unfolding until_def until_n_def 
+  by (metis dual_order.refl le_less_Suc_eq necessary_n_simp necessary_simp possibly_imp_first possibly_simp)
+
+lemma until_imp_until_n: \<open>until P Q \<ss> \<Longrightarrow> until_n n P Q \<ss>\<close>
+proof (cases \<open>possibly_n n Q \<ss>\<close>)
+  case True
+  moreover assume \<open>until P Q \<ss>\<close>
+  ultimately have \<open>necessary_n (first Q \<ss>) P \<ss>\<close>
+    by auto
+  then show ?thesis 
+    unfolding until_n_def using True by simp
+next
+  case False
+  moreover assume \<open>until P Q \<ss>\<close>
+  ultimately have \<open>necessary_n (Suc n) P \<ss> \<or> necessary P \<ss>\<close> 
+    using not_possibly_imp_first unfolding until_def 
+    by (metis dual_order.strict_trans less_antisym necessary_n_simp)
+  then show ?thesis 
+    by (metis False necessary_n_simp necessary_simp until_n_def)
+qed
+
+lemma until_n_induct[case_names until_n_base until_n_step]: 
+  assumes until_n_base: \<open>P (\<ss> 0) \<or> Q (\<ss> 0)\<close>
+    and until_n_step: \<open>\<And> i. i < n \<Longrightarrow> \<not> Q (\<ss> i) \<Longrightarrow> P (\<ss> i) \<Longrightarrow> P (\<ss> (Suc i)) \<or> Q (\<ss> (Suc i))\<close>
+  shows \<open>until_n n P Q \<ss>\<close>
+  using until_n_step
+proof (induct n)
+  case 0
+  then show ?case 
+    using until_n_base unfolding until_n_def
+    by (metis bot_nat_0.extremum_uniqueI le_numeral_extra(3) less_Suc0 less_nat_zero_code necessary_n_simp possibly_imp_first possibly_n_simp)
+next
+  case (Suc n)
+  then have *: \<open>until_n n P Q \<ss>\<close> 
+    by simp
+  show ?case 
+  proof (cases \<open>possibly_n n Q \<ss>\<close>)
+    case True
+    with * have \<open>necessary_n (first Q \<ss>) P \<ss>\<close>
+      by (meson until_n_def) 
+    moreover have \<open>first Q \<ss> \<le> n\<close>
+      using True by (simp add: possibly_imp_first)
+    ultimately show ?thesis 
+      by (metis True linorder_le_cases not_less_eq_eq possibly_n_simp until_n_def)
+  next
+    case False
+    with * have **: \<open>necessary_n (Suc n) P \<ss>\<close>
+      by (meson until_n_def)
+    then have \<open>necessary_n (Suc (Suc n)) P \<ss> \<or> Q (\<ss> (Suc n))\<close>
+      using Suc(2) False by (simp add: less_Suc_eq)  
+    moreover have \<open>Q (\<ss> (Suc n)) \<Longrightarrow> first Q \<ss> = Suc n\<close>
+      using False 
+      by (metis P_imp_first_leq_n Suc_leI not_possibly_imp_first possibly_simp verit_la_disequality)
+    ultimately show ?thesis
+      using **
+      by (metis False linorder_le_less_linear nat_less_le not_less_eq possibly_n_simp until_n_def)
+  qed
+qed
+
+lemma until_induct[case_names until_base until_step]: 
+  assumes until_base: \<open>P (\<ss> 0) \<or> Q (\<ss> 0)\<close>
+    and until_step: \<open>\<And> i. \<not> Q (\<ss> i) \<Longrightarrow> P (\<ss> i) \<Longrightarrow> P (\<ss> (Suc i)) \<or> Q (\<ss> (Suc i))\<close>
+  shows \<open>until P Q \<ss>\<close>
+  using assms until_n_induct by (metis until_n_imp_until)
+
+lemma w_not_consumed_until_it_is:
+  assumes \<open>path_up_to k R n \<ss>\<close> \<open>\<ss> 0 = (x,v @ w)\<close>
+  shows \<open>until_n n (\<lambda> \<cc>. \<exists> y u. \<cc> = (y,u @ w) \<and> (transition k R)\<^sup>*\<^sup>* (x,v) (y,u)) (\<lambda> \<cc>. \<exists> y. \<cc> = (y, w)) \<ss>\<close>
+proof (induct rule: until_n_induct)
+  case until_n_base
+  have \<open>(\<exists> y u. (\<ss> 0) = (y,u @ w) \<and> (transition k R)\<^sup>*\<^sup>* (x,v) (y,u))\<close>
+    using \<open>\<ss> 0 = (x,v @ w)\<close> by simp
+  then show ?case 
+    by simp
+next
+  case (until_n_step i)
+  then obtain y u where *: \<open>\<ss> i = (y, u @ w)\<close> \<open>(transition k R)\<^sup>*\<^sup>* (x, v) (y, u)\<close> \<open>u \<noteq> []\<close>
+    by auto
+  let ?P = \<open>\<lambda> \<cc>. \<exists> y u. \<cc> = (y,u @ w) \<and> (transition k R)\<^sup>*\<^sup>* (x,v) (y,u)\<close>
+  let ?Q = \<open>\<lambda> \<cc>.  \<exists> y. \<cc> = (y, w)\<close>
+  from until_n_step(1) \<open>path_up_to k R n \<ss>\<close> have \<open>transition k R (\<ss> i) (\<ss> (Suc i))\<close>
+    by auto
+  then show ?case 
+  proof (induct rule: transition.cases)
+    case (t_l z z0 s v')
+    then have \<open>z = y\<close>
+      using \<open>\<ss> i = (y, u @ w)\<close> by simp
+    from t_l obtain u' where \<open>Inl s # u' = u\<close>
+      using \<open>u \<noteq> []\<close> by (metis "*"(1) Pair_inject append_eq_Cons_conv)
+    then have \<open>transition k R (y,u) (z0,u')\<close>
+      using t_l  \<open>z = y\<close> by auto
+    then show ?case 
+      using * \<open>Inl s # u' = u\<close> t_l.hyps(1) t_l.hyps(2) by fastforce
+  next
+    case (t_r z r h v')
+    then have \<open>z = y\<close>
+      using \<open>\<ss> i = (y,u @ w)\<close> by simp
+    from t_r obtain u' where \<open>Inr h # u' = u\<close>
+      using \<open>u \<noteq> []\<close> by (metis "*"(1) Pair_inject append_eq_Cons_conv)
+    show ?case sorry
+  qed
+qed
+
+
+(*either v is not consumed or you can consume everything before v before consuming v*)
+lemma transition_star_regularity_a1: 
+  \<open>(transition k R)\<^sup>*\<^sup>* ((x,v @ w)) \<cc>2 \<Longrightarrow> 
+    (\<exists> \<cc>. (transition k R)\<^sup>*\<^sup>* (x,v) \<cc> \<and> \<cc>\<^bold>;w = \<cc>2) \<or> (\<exists> \<s>. (transition k R)\<^sup>*\<^sup>* (x,v) (S \<s>, []) \<and> (transition k R)\<^sup>*\<^sup>* (S \<s>,w) \<cc>2)\<close>
+proof-
+  assume a: \<open>(transition k R)\<^sup>*\<^sup>* ((x,v @ w)) \<cc>2\<close>
+  then obtain \<ss> n where \<ss>_def: \<open>path_up_to k R n \<ss>\<close> \<open>\<ss> 0 = (x,v @ w)\<close> \<open>\<ss> n = \<cc>2\<close> 
+    by (meson star_imp_path_up_to)
+  let ?P = \<open>\<lambda> \<cc>. \<exists> y u. \<cc> = (y,u @ w) \<and> (transition k R)\<^sup>*\<^sup>* (x,v) (y,u)\<close>
+  let ?Q = \<open>\<lambda> \<cc>. \<exists> y. \<cc> = (y,w)\<close>
+  show ?thesis
+  proof (cases \<open>possibly_n n ?Q \<ss>\<close>)
+    case True
+    then have *: \<open>?Q (\<ss> (first ?Q \<ss>)) \<and> first ?Q \<ss> \<le> n\<close> 
+      using possibly_imp_first by blast
+    show ?thesis 
+    proof (cases \<open>\<exists> i. Suc i = first ?Q \<ss>\<close>)
+      case True
+      then show ?thesis sorry
+    next
+      case False
+      then have \<open>first ?Q \<ss> = 0\<close>
+        by (metis not0_implies_Suc)
+      then have \<open>v = []\<close>
+        using \<open>\<ss> 0 = (x,v @ w)\<close> * by auto
+      show ?thesis 
+      proof (cases x)
+        case (S \<s>)
+        then have \<open>(transition k R)\<^sup>*\<^sup>* (x,v) (S \<s>, [])\<close>
+          using \<open>v = []\<close> by simp
+        moreover have \<open>(transition k R)\<^sup>*\<^sup>* (S \<s>,w) \<cc>2\<close>
+          using S \<open>v = []\<close> \<ss>_def a by auto
+        ultimately show ?thesis 
+          by auto
+      next
+        case \<Psi>
+        then show ?thesis sorry
+      qed
+    qed
+  next
+    case False
+    then show ?thesis sorry
+  qed
+
+
+  from \<open>path_up_to k R n \<ss>\<close> have \<open>(\<exists> i \<le> n. (\<exists> \<s>. \<ss> i = (S \<s>,w))) \<or> (\<exists> \<cc>. \<ss> n = \<cc>\<^bold>;w)\<close>
+  proof (induct n)
+    case 0
+    then show ?case 
+      using \<open>\<ss> 0 = (x,v @ w)\<close> unfolding config_post_def by simp
+  next
+    case (Suc n)
+    then consider \<open>\<exists>i\<le>n. \<exists>\<s>. \<ss> i = (S \<s>, w)\<close> | \<open>\<exists>\<cc>. \<ss> n = \<cc> \<^bold>; w\<close> 
+      unfolding path_up_to_def by auto
+    then show ?case 
+    proof cases
+      case 1
+      then show ?thesis 
+        by auto
+    next
+      case 2
+      then show ?thesis sorry
+    qed
+  qed
+  then consider \<open>\<exists> i \<le> n. (\<exists> \<s>. \<ss> i = (S \<s>,w))\<close> | \<open>\<exists> \<cc>. \<ss> n = \<cc>\<^bold>;w\<close>
+    by auto
+  then show ?thesis
+  proof cases
+    case 1
+    then show ?thesis sorry
+  next
+    case 2
+    then show ?thesis sorry
+  qed
+
+
+  proof (cases \<open>\<exists> \<s>. \<exists> i \<le> n. \<ss> i = (S \<s>, [])\<close>)
+    case True
+    then obtain \<s> i where \<open>\<ss> i = (S \<s>, [])\<close> \<open>i \<le> n\<close>
+      by auto
+    then have \<open>(transition k R)\<^sup>*\<^sup>* (\<ss> 0) (\<ss> i)\<close> \<open>(transition k R)\<^sup>*\<^sup>* (\<ss> i) (\<ss> n)\<close>
+      using \<open>path_up_to k R n \<ss>\<close> path_up_to_imp_star by blast+
+    then show ?thesis 
+      using \<open>\<ss> i = (S \<s>, [])\<close> \<open>\<ss> 0 = (x,v @ w)\<close> \<open>\<ss> n = \<cc>2\<close>  sorry
+  next
+    case False
+    then show ?thesis sorry
+  qed
+
+proof (induct rule: rtranclp_induct)
+  case base
+  then show ?case 
+    by blast
+next
+  case (step y z)
+  then show ?case sorry
+qed
+
+
+
+proof (induct v arbitrary: \<cc>2 rule:  List.rev_induct)
+  case Nil
+  then show ?case 
+    unfolding config_post_def by (metis append_Nil2 apsnd_conv surj_pair)
+next
+  case (snoc a v)
+  then show ?case sorry
+qed
+
+
+end

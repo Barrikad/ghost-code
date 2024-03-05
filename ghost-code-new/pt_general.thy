@@ -31,7 +31,7 @@ lemma skip_unfold: \<open>skip_req pt \<Longrightarrow> pt \<pp> Skip = \<pp>\<c
 definition \<open>ghost_req pt \<equiv> \<forall> \<pp> prog. pt \<pp> (Ghost prog) = pt \<pp> prog\<close>
 lemma ghost_unfold: \<open>ghost_req pt \<Longrightarrow> pt \<pp> (Ghost prog) = pt \<pp> prog\<close>
   unfolding ghost_req_def by simp
-
+ 
 definition \<open>fseq_req pt \<equiv> \<forall> \<pp> prog1 prog2. pt \<pp> (prog1\<^bold>;prog2) = pt (pt \<pp> prog1) prog2\<close>
 lemma fseq_unfold: \<open>fseq_req pt \<Longrightarrow> pt \<pp> (prog1\<^bold>;prog2) = pt (pt \<pp> prog1) prog2\<close>
   unfolding fseq_req_def by simp
@@ -571,8 +571,13 @@ lemma seq_conj:
   shows \<open>pt (pt \<pp> c1) c2 \<sqinter> pt (pt \<qq> c1) c2 \<le> pt (pt (\<pp> \<sqinter> \<qq>) c1) c2\<close>
   using assms by (metis antisym mono_inf pt_mono)
 
+(*Remaining proofs missing
+distributed lattice thing needed for loop proofs (maybe something weaker)
+*)
+
 subsection \<open>disjunctivity\<close>
 
+(*Remaining proofs missing*)
 
 subsection \<open>ghost code can be removed\<close>
 
@@ -1096,48 +1101,5 @@ end
 locale \<r>\<p>_pt_full = \<r>\<p>_pt_mono +
   assumes pt_conjunctive: \<open>pt \<pp> c \<sqinter> pt \<qq> c = pt (\<pp> \<sqinter> \<qq>) c\<close>
   assumes pt_disjunctive: \<open>pt \<pp> c \<squnion> pt \<qq> c = pt (\<pp> \<squnion> \<qq>) c\<close>
-
-(*
-lemma fseq_leq_rinduct:
-  assumes hyps: \<open>\<And> \<pp>. \<r>\<p> (pt \<pp> c1) \<le> \<r>\<p> (pt \<pp> (erase_ghost c1))\<close> \<open>\<And> \<pp>. \<r>\<p> (pt \<pp> c2) \<le> \<r>\<p> (pt \<pp> (erase_ghost c2))\<close>
-  shows \<open>\<r>\<p> (pt (pt \<pp> c1) c2) \<le> \<r>\<p> (pt (pt \<pp> (erase_ghost c1)) (erase_ghost c2))\<close>
-  using reqs hyps 
-
-above doesn't work, consider example below
-
-with ghost code  | without ghost code
-x = 1, y = 1     | x = 1, y = 1
-ghost y := 2
-x = 1, y = 2     | x = 1, y = 1
-if y = 2
-  var x
-x = any, y = 2   | x = 1, y = 1
-*)
-
-
-
-
-section \<open>general conservative checks\<close>
-(*
-primrec g_check where
-  \<open>g_check gc (Command c) = gc c\<close> |
-  \<open>g_check gc Skip = True\<close> |
-  \<open>g_check gc (prog1\<^bold>; prog2) = (g_check gc prog1 \<and> g_check gc prog2)\<close> |
-  \<open>g_check gc (prog1 \<^bold>[\<^bold>] prog2) = (g_check gc prog1 \<and> g_check gc prog2)\<close> |
-  \<open>g_check gc (If \<b> prog1 prog2) = (g_check gc prog1 \<and> g_check gc prog2)\<close> |
-  \<open>g_check gc (While \<b> prog) = g_check gc prog\<close> |
-  \<open>g_check gc (Ghost prog) = g_check gc prog\<close>
-
-primrec r_check where
-  \<open>r_check gi \<r> rc gc (Command c) = rc c\<close> |
-  \<open>r_check gi \<r> rc gc Skip = True\<close> |
-  \<open>r_check gi \<r> rc gc (prog1\<^bold>; prog2) = (r_check gi \<r> rc gc prog1 \<and> r_check gi \<r> rc gc prog2)\<close> |
-  \<open>r_check gi \<r> rc gc (prog1 \<^bold>[\<^bold>] prog2) = (r_check gi \<r> rc gc prog1 \<and> r_check gi \<r> rc gc prog2)\<close> |
-  \<open>r_check gi \<r> rc gc (If \<b> prog1 prog2) = (\<r> \<^bold>[gi \<b>\<^bold>] \<and> r_check gi \<r> rc gc prog1 \<and> r_check gi \<r> rc gc prog2)\<close> |
-  \<open>r_check gi \<r> rc gc (While \<b> prog) = (\<r> \<^bold>[gi \<b>\<^bold>] \<and> r_check gi \<r> rc gc prog)\<close> |
-  \<open>r_check gi \<r> rc gc (Ghost prog) = g_check gc prog\<close>
-*)
-
-
 
 end

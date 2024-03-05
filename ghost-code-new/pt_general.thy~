@@ -67,6 +67,10 @@ if x {
   x := False [] skip
 }
 
+
+make contribution list
+make repository
+
 is equal to skip with all normal transformers
 but equal to var x for demonic forwards + angelic if
 *)
